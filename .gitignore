@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+
+
+# Perso
+configuration.cfg
+
+
 # C extensions
 *.so
 
