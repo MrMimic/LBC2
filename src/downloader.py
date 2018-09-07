@@ -4,6 +4,7 @@
 import re
 import time
 import requests
+import dryscrape
 import configparser
 import mysql.connector
 from bs4 import BeautifulSoup as bs
@@ -53,7 +54,7 @@ class LBC_object(object):
 			command = 'INSERT INTO category (name) VALUES (%(name)s) ;'
 			data = {'name': self.categ}
 			cursor.execute(command, data)
-			print('Category {} inserted.'.format(self.categ))
+			print('ENRICHMENT: {} inserted.'.format(self.categ))
 			command = 'SELECT idCategory FROM category WHERE name = %(name)s ;'
 			data = {'name': self.categ}
 			cursor.execute(command, data)
@@ -79,7 +80,7 @@ class LBC_object(object):
 				'codePostal': self.loc
 			}
 			cursor.execute(command, data)
-			print('Localisation {} inserted.'.format(self.loc))
+			print('ENRICHMENT: {} inserted.'.format(self.loc))
 			command = 'SELECT idLoc FROM localisation WHERE codePostal = %(codePostal)s ;'
 			data = {'codePostal': self.loc}
 			cursor.execute(command, data)
@@ -122,15 +123,22 @@ class DailyParser(object):
 		"""Parse LBC to insert every item into an SQL DB"""
 
 		page = 1
+		session = dryscrape.Session()
 
 		while page < 35:
-		
-			raw_data = requests.get('{}{}'.format(self.base_url, page)).text
-			raw_data_indexed = bs(raw_data, 'lxml')
-			sold_objects = raw_data_indexed.find_all('li', attrs={'class': '_3DFQ-'})
-	
+
+			#~ raw_data = requests.get('{}{}'.format(self.base_url, page)).text
+			#~ raw_data_indexed = bs(raw_data, 'lxml')
+			#~ sold_objects = raw_data_indexed.find_all('li', attrs={'class': '_3DFQ-'})
+			session.visit('{}{}'.format(self.base_url, page))
+			response = session.body()
+			soup = bs(response, 'lxml')
+			sold_objects = soup.find_all('li', attrs={'class': '_3DFQ-'})
+			print('PAGE: {}{}\t{} objects.'.format(self.base_url, page, len(sold_objects)))
+
 			for sold_object in sold_objects:
-	
+
+				tst = time.time()
 				desc_object = LBC_object()
 				# URL
 				desc_object.url = sold_object.find_all('a', attrs={'class': 'clearfix trackable'}, href=True)[0]['href']
@@ -151,10 +159,18 @@ class DailyParser(object):
 				# Category
 				desc_object.categ = sold_object.find_all('p', attrs={'data-qa-id': 'aditem_category'})[0].text
 				# Description
-				object_data = bs(requests.get('{}{}'.format(self.lbc_url, desc_object.url)).text, 'lxml')
-				desc_object.desc = object_data.find_all('span', attrs={'class': '_2wB1z'})[0].text
+				session.visit('{}{}'.format(self.lbc_url, desc_object.url))
+				response = session.body()
+				object_data = bs(response, 'lxml')
+				try:
+					desc_object.desc = re.findall('"category_name":"{}","subject":"{}","body":"(.*?)"'.format(desc_object.categ, desc_object.name), str(object_data))[0]
+				except:
+					continue
 				# Insertion
 				desc_object.insert(configuration=self.configuration)
+				# Stdout
+				tsp = time.time()
+				print('OBJECT: {} inserted ({} sec).'.format(desc_object.name, round(tsp-tst, 2)))
 
 			page += 1
 
